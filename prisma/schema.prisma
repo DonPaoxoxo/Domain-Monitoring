@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+/// Additional admin accounts, beyond the single env-var-configured admin
+/// (ADMIN_USERNAME/ADMIN_PASSWORD). Managed via `scripts/create-admin.ts`.
+model Admin {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Domain {
+  id           Int      @id @default(autoincrement())
+  domain       String   @unique
+  url          String   @db.Text
+  group        String   @default("Default")
+  targetMarket String?
+  active       Boolean  @default(true)
+  /// True when monitoring is paused from the dashboard; checker nodes skip these domains.
+  paused       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  results    CheckResult[]
+  checkLogs  CheckLog[]
+  alertState DomainAlertState?
+}
+
+/// Tracks each domain's last-notified overall status, so status-change alerts
+/// (see lib/alerts.ts) only fire once per transition rather than every check cycle.
+model DomainAlertState {
+  id         Int      @id @default(autoincrement())
+  domainId   Int      @unique
+  domain     Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  lastStatus String
+  updatedAt  DateTime @updatedAt
+}
+
+/// Singleton row (id always 1) holding Alert Settings configuration.
+model AlertSettings {
+  id                 Int      @id @default(1)
+  emailEnabled       Boolean  @default(true)
+  email              String   @default("ops@mi-hawk.io")
+  webhookEnabled     Boolean  @default(true)
+  webhookUrl         String   @default("https://hooks.slack.com/services/T000/B000/XXXXXXXX") @db.Text
+  smsEnabled         Boolean  @default(false)
+  smsNumber          String   @default("")
+  thresholdIndia     Int      @default(70)
+  thresholdIndonesia Int      @default(70)
+  thresholdGlobal    Int      @default(50)
+  /// JSON-encoded Record<OverallStatus, { email: boolean; webhook: boolean }>
+  escalation         String   @default("{\"Critical\":{\"email\":true,\"webhook\":true},\"Major Issue\":{\"email\":true,\"webhook\":true},\"Partial Issue\":{\"email\":true,\"webhook\":false},\"Minor Issue\":{\"email\":false,\"webhook\":false},\"Healthy\":{\"email\":false,\"webhook\":false}}") @db.Text
+  updatedAt          DateTime @updatedAt
+}
+
+/// Records each Bulk Import batch for the Bulk Import "Recent imports" table.
+model BulkImportLog {
+  id        Int      @id @default(autoincrement())
+  fileName  String
+  market    String
+  added     Int
+  skipped   Int
+  createdAt DateTime @default(now())
+}
+
+/// Singleton row (id always 1) holding dashboard-configurable settings.
+model AppSettings {
+  id             Int      @id @default(1)
+  checkInterval  String   @default("1 hour")
+  requestTimeout String   @default("10 seconds")
+  retries        Int      @default(2)
+  /// Overrides CHECKER_API_KEY env var once set via the System Settings "Regenerate" action.
+  checkerApiKey  String?
+  updatedAt      DateTime @updatedAt
+}
+
+/// Latest check result for one (domain, region, location) combination,
+/// reported by a checker node. Upserted on every check cycle.
+model CheckResult {
+  id             Int      @id @default(autoincrement())
+  domainId       Int
+  domain         Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  region         String
+  location       String
+  nodeName       String
+  /// "up" | "down" | "blocked" (request rejected by the target's CDN/WAF before reaching the origin)
+  status         String
+  statusCode     Int?
+  responseTimeMs Int?
+  errorMessage   String? @db.Text
+  /// Resolved absolute URL from the `Location` header on a 3xx response. NULL
+  /// for non-redirect results or if the header was absent/unparseable.
+  redirectUrl    String? @db.Text
+  checkedAt      DateTime
+  updatedAt      DateTime @updatedAt
+
+  @@unique([domainId, region, location])
+  @@index([region, location])
+}
+
+/// Append-only history of every check result reported by checker nodes,
+/// for the "Check History" timelog view. Pruned to the last 30 days.
+model CheckLog {
+  id             Int      @id @default(autoincrement())
+  domainId       Int
+  domain         Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  region         String
+  location       String
+  nodeName       String
+  /// "up" | "down" | "blocked"
+  status         String
+  statusCode     Int?
+  responseTimeMs Int?
+  errorMessage   String? @db.Text
+  checkedAt      DateTime
+
+  @@index([domainId, checkedAt])
+  @@index([checkedAt])
+}

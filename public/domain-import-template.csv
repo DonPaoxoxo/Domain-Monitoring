@@ -1,0 +1,12 @@
+# Mi-hawk bulk domain import template
+# -------------------------------------------------------------
+# - One domain per line, without http:// or https://
+# - Lines starting with # are comments and are skipped
+# - Duplicate domains already being monitored are skipped automatically
+# - This batch is tagged with the target market you select on the
+#   Bulk Import page (India or Indonesia)
+#
+# Replace the examples below with your own domains:
+example1.com
+example2.com
+shop.example.com
